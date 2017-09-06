@@ -235,6 +235,7 @@ CONTAINS
          CALL dbcsr_create(dense_template, template=matrix, &
                            dist=dense_rdist%i%main, &
                            row_blk_size=array_data(row_blk_size), col_blk_size=array_data(col_blk_size))
+        print *, "Making dense matrices"
          CALL dbcsr_make_images_dense(m2s, dense_rdist, &
                                       row_map=row_map, col_map=col_map, &
                                       join_cols=use_dense_mult, join_rows=ab_dense, &
@@ -482,6 +483,7 @@ CONTAINS
 !$    ithread = omp_get_thread_num()
 !$OMP MASTER
 !$    nthreads = omp_get_num_threads()
+print*, "make_images: nthreads=",nthreads,"ithread=",ithread
 !$OMP END MASTER
 
       ! Allocate thread private data
@@ -493,7 +495,7 @@ CONTAINS
 
       ! Count sizes for sending
       !
-      CALL dbcsr_iterator_start(iter, ism, shared=.TRUE.)
+      CALL dbcsr_iterator_start(iter, ism, shared=.TRUE.,dynamic=.TRUE.)
       DO WHILE (dbcsr_iterator_blocks_left(iter))
          CALL dbcsr_iterator_next_block(iter, row, col, blk, &
                                         row_size=row_size, col_size=col_size)
@@ -612,7 +614,7 @@ CONTAINS
       !
       CALL timeset(routineN//"_pack", handle2)
       ! Copies metadata and actual data to be sent into the send buffers.
-      CALL dbcsr_iterator_start(iter, ism, shared=.TRUE.)
+      CALL dbcsr_iterator_start(iter, ism, shared=.TRUE.,dynamic=.TRUE.)
       DO WHILE (dbcsr_iterator_blocks_left(iter))
          CALL dbcsr_iterator_next_block(iter, row, col, blk, blk_p=blk_p, &
                                         row_size=row_size, col_size=col_size)
