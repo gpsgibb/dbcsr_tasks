@@ -14,6 +14,7 @@
 !>  - 2011-11    Moved parameter-stack processing routines to
 !>               dbcsr_mm_methods.
 !>  - 2013-01    extensive refactoring (Ole Schuett)
+!>  - 2017-09    Altered threading model to task-based parallelisation (Gordon Gibb)
 ! **************************************************************************************************
 
 MODULE dbcsr_mm_multrec
@@ -844,4 +845,3 @@ CONTAINS
 #:include "dbcsr_mm_multrec.f90"
 
 END MODULE dbcsr_mm_multrec
-

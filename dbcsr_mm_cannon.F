@@ -454,7 +454,7 @@ CONTAINS
                               nze=0, data_type=data_type, &
                               max_rbs=sm%max_rbs, max_cbs=sm%max_cbs, &
                               row_blk_offset=sm%row_blk_offset, col_blk_offset=sm%col_blk_offset, &
-                              thread_dist=sm%dist, &
+!                              thread_dist=sm%dist, &
                               data_memory_type=data_memory_type, &
                               index_memory_type=memtype_mpi_buffer)
             ums%mats(row_img, col_img)%negate_real = sm%negate_real
@@ -463,7 +463,7 @@ CONTAINS
       ENDDO
 
       nthreads = 1
-!$OMP PARALLEL DEFAULT (NONE) &
+!$OMP PARALLEL num_threads(1)  DEFAULT (NONE) &
 !$OMP PRIVATE (ithread, symmetry_i, row_img, col_img, &
 !$OMP          myt_send_count, myt_total_send_count, &
 !$OMP          iter, row, col, blk, row_size, col_size, stored_row, stored_col, &
@@ -486,6 +486,8 @@ CONTAINS
 print*, "make_images: nthreads=",nthreads,"ithread=",ithread
 !$OMP END MASTER
 
+!$OMP BARRIER
+
       ! Allocate thread private data
       !
       ALLOCATE (myt_send_count(2, nrow_images, ncol_images, 0:numproc-1)); myt_send_count(:, :, :, :) = 0
@@ -495,7 +497,9 @@ print*, "make_images: nthreads=",nthreads,"ithread=",ithread
 
       ! Count sizes for sending
       !
+     ! print*, "pre Iterator Start",ithread
       CALL dbcsr_iterator_start(iter, ism, shared=.TRUE.,dynamic=.TRUE.)
+      !print*, 'Post-Iterator Start',ithread
       DO WHILE (dbcsr_iterator_blocks_left(iter))
          CALL dbcsr_iterator_next_block(iter, row, col, blk, &
                                         row_size=row_size, col_size=col_size)
@@ -712,6 +716,7 @@ print*, "make_images: nthreads=",nthreads,"ithread=",ithread
             blk = blks(row_img, col_img)
             blks(row_img, col_img) = blks(row_img, col_img)+1
             blk_ps(row_img, col_img) = blk_ps(row_img, col_img)+nze
+print*, blk_l,row_img,col_img,blk,stored_row
             ums%mats(row_img, col_img)%wms(1)%row_i(blk) = stored_row
             ums%mats(row_img, col_img)%wms(1)%col_i(blk) = stored_col
             ums%mats(row_img, col_img)%wms(1)%blk_p(blk) = &
