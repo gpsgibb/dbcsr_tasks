@@ -387,12 +387,13 @@ ENDDO
       t_b_f = 1
       t_b_l = right%nblks
 ithread=0
-!$ ithread = OMP_GET_THREAD_NUM()
-!$    IF (ASSOCIATED(left%thr_c)) THEN
-!$       ithread = OMP_GET_THREAD_NUM()
-!$       t_a_f = left%thr_c(ithread+1)+1
-!$       t_a_l = left%thr_c(ithread+2)
-!$    ENDIF
+!! THIS BIT DECIDES IF THREADED WHICH BIT OF THE RESULT MATRIX
+!!$ ithread = OMP_GET_THREAD_NUM()
+!!$    IF (ASSOCIATED(left%thr_c)) THEN
+!!$       ithread = OMP_GET_THREAD_NUM()
+!!$       t_a_f = left%thr_c(ithread+1)+1
+!!$       t_a_l = left%thr_c(ithread+2)
+!!$    ENDIF
       CALL sparse_multrec(this, left, right, &
                           1, left%nblkrows_local, &
                           1, right%nblkcols_local, &
