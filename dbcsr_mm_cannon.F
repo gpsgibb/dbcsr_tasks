@@ -1325,6 +1325,8 @@ print*, blk_l,row_img,col_img,blk,stored_row
       CALL local_filter(array_data(product_matrix%col_blk_size), array_size(product_matrix%local_cols), &
                         array_data(product_matrix%local_cols), n_sizes)
       !
+
+      print *, "About to allocate multrec and call multrec_init"
 !$OMP PARALLEL &
 !$OMP DEFAULT (NONE) &
 !$OMP SHARED (left_buffer_comm, right_buffer_comm, product_matrix,&
@@ -1335,6 +1337,7 @@ print*, blk_l,row_img,col_img,blk,stored_row
 !$OMP PRIVATE(ithread)
       ithread = 0
 !$    ithread = OMP_GET_THREAD_NUM()
+
       ALLOCATE (multrec(ithread)%p)
       CALL dbcsr_mm_multrec_init(multrec(ithread)%p, &
                                  left_buffer_comm%mats(1, 1), &
@@ -1349,6 +1352,8 @@ print*, blk_l,row_img,col_img,blk,stored_row
                                  right_row_blk_size=array_data(right_buffer_comm%mats(1, 1)%row_blk_size), &
                                  m_sizes=m_sizes, n_sizes=n_sizes)
 !$OMP END PARALLEL
+
+print*, "multrec_init done :)"
       !
       ! Setup indexing
       CALL setup_rec_index_2d(left_set, left_row_nimages, left_col_nimages)

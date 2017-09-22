@@ -122,7 +122,7 @@ MODULE dbcsr_mm_multrec
       INTEGER               :: original_lastblk
       INTEGER(kind=int_8)   :: flop
       TYPE(dbcsr_work_type), POINTER :: product_wm => Null()
-      TYPE(dbcsr_mm_csr_type)        :: csr
+      TYPE(dbcsr_mm_csr_type), allocatable, dimension(:)    :: csr
       LOGICAL                        :: new_row_max_epss = .FALSE.
       LOGICAL                        :: initialized = .FALSE.
    END TYPE dbcsr_mm_multrec_type
@@ -196,17 +196,20 @@ CONTAINS
       LOGICAL, PARAMETER                                 :: dbg = .FALSE.
 
       INTEGER                                            :: c_nblkcols_local, c_nblkrows_local, &
-                                                            handle, ithread
+                                                            handle, ithread, nthreads
       INTEGER, DIMENSION(:), POINTER                     :: c_local_cols, c_local_rows
 
 !$    INTEGER, DIMENSION(:), POINTER           :: product_thread_dist
+integer :: i
 
 !   ---------------------------------------------------------------------------
 
       CALL timeset(routineN, handle)
 
+      nthreads = 1
       ithread = 0
 !$    ithread = OMP_GET_THREAD_NUM()
+!$    nthreads= OMP_GET_NUM_THREADS()
       !
       IF (this%initialized) &
          CPABORT("multrec already initialized.")
@@ -302,14 +305,30 @@ CONTAINS
       NULLIFY (this%k_locals)
       NULLIFY (this%k_sizes)
 
+
+
+!!$OMP PARALLEL shared(this,left,right,product,block_estimate,right_row_blk_size,nlayers) private(ithread,nthreads)
+
+      nthreads = 1
+      ithread = 0
+!$    ithread = OMP_GET_THREAD_NUM()
+!$    nthreads= OMP_GET_NUM_THREADS()
+
+!!$OMP MASTER
+      allocate (this%csr(0:nthreads-1))
+!!$OMP END MASTER
+!!$OMP BARRIER
+     print*, "multrec_init",ithread, nthreads
       !TODO: should we move this up?
-      CALL dbcsr_mm_csr_init(this%csr, &
+DO i=0,nthreads-1
+      CALL dbcsr_mm_csr_init(this%csr(i), &
                              left=left, right=right, product=product, &
                              m_sizes=this%m_sizes, n_sizes=this%n_sizes, &
                              block_estimate=block_estimate, &
                              right_row_blk_size=right_row_blk_size, &
                              nlayers=nlayers)
-
+!!$OMP END PARALLEL
+ENDDO
       this%initialized = .TRUE.
       CALL timestop(handle)
    END SUBROUTINE dbcsr_mm_multrec_init
@@ -367,6 +386,8 @@ CONTAINS
       t_a_l = left%nblks
       t_b_f = 1
       t_b_l = right%nblks
+ithread=0
+!$ ithread = OMP_GET_THREAD_NUM()
 !$    IF (ASSOCIATED(left%thr_c)) THEN
 !$       ithread = OMP_GET_THREAD_NUM()
 !$       t_a_f = left%thr_c(ithread+1)+1
@@ -380,7 +401,7 @@ CONTAINS
                           t_b_f, t_b_l, right%coo_l, &
                           0)
 
-      CALL dbcsr_mm_csr_purge_stacks(this%csr, left, right)
+      CALL dbcsr_mm_csr_purge_stacks(this%csr(ithread), left, right)
 
       flop = flop+this%flop
       !
@@ -393,8 +414,12 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE dbcsr_mm_multrec_phaseout(this)
       TYPE(dbcsr_mm_multrec_type), INTENT(INOUT)         :: this
+      integer :: ithread
 
-      CALL dbcsr_mm_csr_phaseout(this%csr)
+      ithread=0
+!$      ithread=omp_get_thread_num()
+
+      CALL dbcsr_mm_csr_phaseout(this%csr(ithread))
    END SUBROUTINE dbcsr_mm_multrec_phaseout
 
 ! **************************************************************************************************
@@ -405,12 +430,16 @@ CONTAINS
 ! **************************************************************************************************
    SUBROUTINE dbcsr_mm_multrec_dev2host_init(this)
       TYPE(dbcsr_mm_multrec_type), INTENT(inout)         :: this
+      integer :: ithread
 
 !   ---------------------------------------------------------------------------
 
+ithread=0
+!$ ithread=omp_get_thread_num()
+
       IF (.NOT. this%initialized) &
          CPABORT("multrec not initialized.")
-      CALL dbcsr_mm_csr_dev2host_init(this%csr)
+      CALL dbcsr_mm_csr_dev2host_init(this%csr(ithread))
    END SUBROUTINE dbcsr_mm_multrec_dev2host_init
 
 ! **************************************************************************************************
@@ -437,7 +466,10 @@ CONTAINS
       IF (.NOT. this%initialized) &
          CPABORT("multrec not initialized.")
 
-      CALL dbcsr_mm_csr_finalize(this%csr)
+ithread=0
+!$ ithread=OMP_GET_THREAD_NUM()
+
+      CALL dbcsr_mm_csr_finalize(this%csr(ithread))
 
       ! Release the carrier
       IF (this%new_row_max_epss) DEALLOCATE (this%row_max_epss)
@@ -546,11 +578,15 @@ CONTAINS
          routineP = moduleN//':'//routineN
 
       INTEGER                                            :: handle
+      integer :: ithread
+
+      ithread=0
+!$      ithread=omp_get_thread_num()
 
       CALL timeset(routineN, handle)
       IF (.NOT. this%initialized) &
          CPABORT("multrec not initialized.")
-      CALL dbcsr_mm_csr_red3D(this%csr, meta_buffer, data_buffer, flop, &
+      CALL dbcsr_mm_csr_red3D(this%csr(ithread), meta_buffer, data_buffer, flop, &
                               m_sizes=this%m_sizes, n_sizes=this%n_sizes, &
                               g2l_map_rows=g2l_map_rows, &
                               g2l_map_cols=g2l_map_cols, &
@@ -622,8 +658,12 @@ CONTAINS
       LOGICAL, PARAMETER                                 :: dbg = .FALSE.
 
       INTEGER                                            :: acut, bcut, cut, K, M, N, s1
-
+INTEGER :: ithread
 !   ---------------------------------------------------------------------------
+
+ithread=0
+!$ ithread=OMP_GET_THREAD_NUM()
+
 
       IF (dbg) THEN
          WRITE (*, '(I7,1X,5(A,2(1X,I7)))') d, " rm", mi, mf, ",", ni, nf, ",", ki, kf, "/", ai, af, ",", bi, bf
@@ -637,7 +677,7 @@ CONTAINS
 
       IF (af-ai+1 <= dbcsr_cfg%multrec_limit .AND. bf-bi+1 <= dbcsr_cfg%multrec_limit) THEN
          IF (af-ai+1 .GT. 0 .AND. bf-bi+1 .GT. 0) &
-            CALL dbcsr_mm_csr_multiply(this%csr, left, right, &
+            CALL dbcsr_mm_csr_multiply(this%csr(ithread), left, right, &
                                        mi=mi, mf=mf, ni=ni, nf=nf, ki=ki, kf=kf, &
                                        ai=ai, af=af, &
                                        bi=bi, bf=bf, &
