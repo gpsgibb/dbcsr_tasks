@@ -1709,7 +1709,7 @@ print*, "multrec_init done :)"
 !$OMP BARRIER
             CALL timeset(routineN//"_multrec", handle2)
 !$OMP MASTER
-!$ print *, "I am the master thread and I am thread number",omp_get_thread_num()             
+!$ print *, "I am the master thread and I am thread number",omp_get_thread_num()
             CALL dbcsr_mm_multrec_multiply(multrec(ithread)%p, &
                                            left=left_buffer_calc%mats(1, v_ki+1), &
                                            right=right_buffer_calc%mats(v_ki+1, 1), &
@@ -1722,6 +1722,9 @@ print*, "multrec_init done :)"
                DEALLOCATE (multrec(ithread)%p)
             ENDIF
 !$OMP END MASTER
+
+!$OMP taskwait
+
 !$OMP ATOMIC
             threads_finished = threads_finished+1
             IF (dbcsr_cfg%use_comm_thread .AND. (ithread .EQ. 0)) THEN

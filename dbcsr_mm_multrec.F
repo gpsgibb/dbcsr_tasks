@@ -361,7 +361,7 @@ ENDDO
       CHARACTER(len=*), PARAMETER :: routineN = 'dbcsr_mm_multrec_multiply', &
          routineP = moduleN//':'//routineN
 
-!$    INTEGER                                            :: ithread
+!$    INTEGER                                            :: ithread, nthreads
       INTEGER                                            :: t_a_f, t_a_l, t_b_f, t_b_l
       INTEGER, DIMENSION(:), POINTER                     :: k_locals
 
@@ -381,19 +381,30 @@ ENDDO
       this%a_norms => a_norms
       this%b_norms => b_norms
 
+!$ nthreads=omp_get_num_threads()
+
       ! Start local multiplication
       t_a_f = 1
       t_a_l = left%nblks
+
       t_b_f = 1
       t_b_l = right%nblks
+
+
 ithread=0
 !! THIS BIT DECIDES IF THREADED WHICH BIT OF THE RESULT MATRIX
-!!$ ithread = OMP_GET_THREAD_NUM()
-!!$    IF (ASSOCIATED(left%thr_c)) THEN
-!!$       ithread = OMP_GET_THREAD_NUM()
+!$ ithread = OMP_GET_THREAD_NUM()
+!$    IF (ASSOCIATED(left%thr_c)) THEN
+!$       ithread = OMP_GET_THREAD_NUM()
 !!$       t_a_f = left%thr_c(ithread+1)+1
 !!$       t_a_l = left%thr_c(ithread+2)
-!!$    ENDIF
+!$    ENDIF
+
+!print *, ithread, t_a_f, t_a_l, t_a_l-t_a_f
+
+!!$OMP BARRIER
+
+
       CALL sparse_multrec(this, left, right, &
                           1, left%nblkrows_local, &
                           1, right%nblkcols_local, &
@@ -665,6 +676,11 @@ INTEGER :: ithread
 ithread=0
 !$ ithread=OMP_GET_THREAD_NUM()
 
+print *, "DEPTH=", d, " ithread=", ithread
+if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
+
+
+!if (d .eq. 0) print *, "bindex=",bf,b_index(1,:)
 
       IF (dbg) THEN
          WRITE (*, '(I7,1X,5(A,2(1X,I7)))') d, " rm", mi, mf, ",", ni, nf, ",", ki, kf, "/", ai, af, ",", bi, bf
@@ -676,9 +692,15 @@ ithread=0
          ENDIF
       ENDIF
 
-      IF (af-ai+1 <= dbcsr_cfg%multrec_limit .AND. bf-bi+1 <= dbcsr_cfg%multrec_limit) THEN
-         IF (af-ai+1 .GT. 0 .AND. bf-bi+1 .GT. 0) &
-            CALL dbcsr_mm_csr_multiply(this%csr(ithread), left, right, &
+
+      !IF (af-ai+1 <= dbcsr_cfg%multrec_limit .AND. bf-bi+1 <= dbcsr_cfg%multrec_limit) THEN
+      !print *, d, af, ai, bf, bi, af-ai+1, bf-bi+1
+      IF (af-ai+1 <= 16 .AND. bf-bi+1 <= 16) THEN
+         IF (af-ai+1 .GT. 0 .AND. bf-bi+1 .GT. 0) THEN
+            print*, "max chunk size is", dbcsr_cfg%multrec_limit
+            print *, "my chunk size is",af-ai+1
+            print *, "chunk is small enough", mi,mf,ni,nf,ki,kf
+                        CALL dbcsr_mm_csr_multiply(this%csr(ithread), left, right, &
                                        mi=mi, mf=mf, ni=ni, nf=nf, ki=ki, kf=kf, &
                                        ai=ai, af=af, &
                                        bi=bi, bf=bf, &
@@ -689,12 +711,17 @@ ithread=0
                                        flop=this%flop, &
                                        a_index=a_index, b_index=b_index, &
                                        a_norms=this%a_norms, b_norms=this%b_norms)
+            print *, "chunk multiplied"
+         endif
          RETURN
       ENDIF
+
+      if (d .gt. 20) STOP "Depth too large"
 
       M = mf-mi+1
       N = nf-ni+1
       K = kf-ki+1
+       print*, "have to cut", M,N,K
       IF (dbg) THEN
          WRITE (*, *) 'm,k,n', M, K, N
       ENDIF
@@ -705,11 +732,13 @@ ithread=0
       CASE (1)
          s1 = M/2
          acut = find_cut_row(ai, af, a_index, mi+s1-1)
+         print *, "cut M",acut
          CALL sparse_multrec(this, left, right, mi, mi+s1-1, ni, nf, ki, kf, &
                              ai, acut-1, a_index, bi, bf, b_index, d+1)
          CALL sparse_multrec(this, left, right, mi+s1, mf, ni, nf, ki, kf, &
                              acut, af, a_index, bi, bf, b_index, d+1)
       CASE (2)
+
          s1 = K/2
          acut = find_cut_col(ai, af, a_index, ki+s1-1)
          IF (dbg) THEN
@@ -721,17 +750,20 @@ ithread=0
             WRITE (*, *) N, s1, ni+s1-1, "/", bi, bf, bcut
             WRITE (*, '(3(I7))') b_index
          ENDIF
+         print *, "cut K", acut,bcut
          CALL sparse_multrec(this, left, right, mi, mf, ni, nf, ki, ki+s1-1, &
                              ai, acut-1, a_index, bi, bcut-1, b_index, d+1)
          CALL sparse_multrec(this, left, right, mi, mf, ni, nf, ki+s1, kf, &
                              acut, af, a_index, bcut, bf, b_index, d+1)
       CASE (3)
+
          s1 = N/2
          bcut = find_cut_col(bi, bf, b_index, ni+s1-1)
          IF (dbg) THEN
             WRITE (*, *) N, s1, ni+s1-1, "/", bi, bf, bcut
             WRITE (*, '(3(I7))') b_index
          ENDIF
+        print *, "cut N", bcut
          CALL sparse_multrec(this, left, right, mi, mf, ni, ni+s1-1, ki, kf, &
                              ai, af, a_index, bi, bcut-1, b_index, d+1)
          CALL sparse_multrec(this, left, right, mi, mf, ni+s1, nf, ki, kf, &
