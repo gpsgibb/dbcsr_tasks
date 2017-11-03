@@ -1716,14 +1716,17 @@ print*, "multrec_init done :)"
                                            flop=flop_single, &
                                            a_norms=left_norms, b_norms=right_norms, &
                                            k_sizes=k_sizes)
-
+            !$OMP taskwait
             IF (metronome == nsteps_k .AND. v_ki == min_nimages-1) THEN
                CALL dbcsr_mm_multrec_finalize(multrec(ithread)%p)
                DEALLOCATE (multrec(ithread)%p)
             ENDIF
+
 !$OMP END MASTER
 
-!$OMP taskwait
+!$OMP BARRIER
+
+
 
 !$OMP ATOMIC
             threads_finished = threads_finished+1

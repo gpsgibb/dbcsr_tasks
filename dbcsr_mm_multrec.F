@@ -364,6 +364,7 @@ ENDDO
 !$    INTEGER                                            :: ithread, nthreads
       INTEGER                                            :: t_a_f, t_a_l, t_b_f, t_b_l
       INTEGER, DIMENSION(:), POINTER                     :: k_locals
+      integer :: d
 
 !   ---------------------------------------------------------------------------
 
@@ -404,14 +405,14 @@ ithread=0
 
 !!$OMP BARRIER
 
-
+      d=0
       CALL sparse_multrec(this, left, right, &
                           1, left%nblkrows_local, &
                           1, right%nblkcols_local, &
                           1, SIZE(k_locals), &
                           t_a_f, t_a_l, left%coo_l, &
                           t_b_f, t_b_l, right%coo_l, &
-                          0)
+                          d)
 
       CALL dbcsr_mm_csr_purge_stacks(this%csr(ithread), left, right)
 
@@ -660,24 +661,33 @@ ithread=0
                                        d)
       TYPE(dbcsr_mm_multrec_type), INTENT(INOUT)         :: this
       TYPE(dbcsr_type), INTENT(IN)                       :: left, right
-      INTEGER, INTENT(IN)                                :: mi, mf, ni, nf, ki, kf, ai, af
+      INTEGER, INTENT(IN) , value                               :: mi, mf, ni, nf, ki, kf, ai, af
       INTEGER, DIMENSION(3, 1:af), INTENT(IN)            :: a_index
-      INTEGER, INTENT(IN)                                :: bi, bf
+      INTEGER, INTENT(IN)  , value                              :: bi, bf
       INTEGER, DIMENSION(3, 1:bf), INTENT(IN)            :: b_index
-      INTEGER, INTENT(IN)                                :: d
+      INTEGER, INTENT(IN)  , value                              :: d
 
       CHARACTER(len=*), PARAMETER :: routineN = 'sparse_multrec', routineP = moduleN//':'//routineN
       LOGICAL, PARAMETER                                 :: dbg = .FALSE.
 
       INTEGER                                            :: acut, bcut, cut, K, M, N, s1
-INTEGER :: ithread
+INTEGER :: ithread, nthreads, d2
+logical :: condition
+integer :: mf1, mi2, acut1, acut2, nf1, ni2, bcut1, bcut2
 !   ---------------------------------------------------------------------------
 
 ithread=0
 !$ ithread=OMP_GET_THREAD_NUM()
+nthreads=1
+!$ nthreads=omp_get_num_threads()
 
-print *, "DEPTH=", d, " ithread=", ithread
+d2=d+1
+
+condition = (ithread .eq. 0 ) .and. (d .eq. 3)
+
+print *, "DEPTH=", d, " ithread=", ithread, "nthreads=",nthreads, "condition=", condition
 if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
+
 
 
 !if (d .eq. 0) print *, "bindex=",bf,b_index(1,:)
@@ -733,10 +743,20 @@ if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
          s1 = M/2
          acut = find_cut_row(ai, af, a_index, mi+s1-1)
          print *, "cut M",acut
-         CALL sparse_multrec(this, left, right, mi, mi+s1-1, ni, nf, ki, kf, &
-                             ai, acut-1, a_index, bi, bf, b_index, d+1)
-         CALL sparse_multrec(this, left, right, mi+s1, mf, ni, nf, ki, kf, &
-                             acut, af, a_index, bi, bf, b_index, d+1)
+         mf1=mi+s1-1
+         acut1=acut-1
+        !$OMP TASK if(condition) FIRSTPRIVATE(mi,mf1,ni,nf,ki,kf,ai,acut1,bi,bf,d2)
+         CALL sparse_multrec(this, left, right, mi, mf1, ni, nf, ki, kf, &
+                             ai, acut1, a_index, bi, bf, b_index, d2)
+        !$OMP END TASK
+        mi2=mi+s1
+        !$OMP TASK if(condition) FIRSTPRIVATE(mi2,mf,ni,nf,ki,kf,acut,af,bi,bf,d2)
+         CALL sparse_multrec(this, left, right, mi2, mf, ni, nf, ki, kf, &
+                             acut, af, a_index, bi, bf, b_index, d2)
+        !$OMP END TASK
+        !$OMP TASK if (condition)
+        print *, "I AM A TASK I AM ON THREAD", omp_get_thread_num()
+        !$OMP END TASK
       CASE (2)
 
          s1 = K/2
@@ -752,9 +772,9 @@ if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
          ENDIF
          print *, "cut K", acut,bcut
          CALL sparse_multrec(this, left, right, mi, mf, ni, nf, ki, ki+s1-1, &
-                             ai, acut-1, a_index, bi, bcut-1, b_index, d+1)
+                             ai, acut-1, a_index, bi, bcut-1, b_index, d2)
          CALL sparse_multrec(this, left, right, mi, mf, ni, nf, ki+s1, kf, &
-                             acut, af, a_index, bcut, bf, b_index, d+1)
+                             acut, af, a_index, bcut, bf, b_index, d2)
       CASE (3)
 
          s1 = N/2
@@ -764,10 +784,20 @@ if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
             WRITE (*, '(3(I7))') b_index
          ENDIF
         print *, "cut N", bcut
-         CALL sparse_multrec(this, left, right, mi, mf, ni, ni+s1-1, ki, kf, &
-                             ai, af, a_index, bi, bcut-1, b_index, d+1)
-         CALL sparse_multrec(this, left, right, mi, mf, ni+s1, nf, ki, kf, &
-                             ai, af, a_index, bcut, bf, b_index, d+1)
+        nf1=ni+s1-1
+        bcut1=bcut-1
+        !$OMP TASK if(condition) FIRSTPRIVATE(mi,mf,ni,nf1,ki,kf,ai,af,bi,bcut1,d2)
+         CALL sparse_multrec(this, left, right, mi, mf, ni, nf1, ki, kf, &
+                             ai, af, a_index, bi, bcut1, b_index, d2)
+        !$OMP END TASK
+        ni2=ni+s1
+        !$OMP TASK if(condition) FIRSTPRIVATE(mi,mf,ni2,nf,ki,kf,ai,af,bcut,bf,d2)
+         CALL sparse_multrec(this, left, right, mi, mf, ni2, nf, ki, kf, &
+                             ai, af, a_index, bcut, bf, b_index, d2)
+        !$OMP END TASK
+        !$OMP TASK if(condition)
+        print *, "I AM A TASK I AM ON THREAD", omp_get_thread_num()
+        !$OMP END TASK
       END SELECT
    END SUBROUTINE sparse_multrec
 
