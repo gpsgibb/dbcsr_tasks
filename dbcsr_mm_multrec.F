@@ -684,6 +684,7 @@ nthreads=1
 d2=d+1
 
 condition = (ithread .eq. 0 ) .and. (d .eq. 3)
+condition = .FALSE.
 
 print *, "DEPTH=", d, " ithread=", ithread, "nthreads=",nthreads, "condition=", condition
 if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
@@ -754,9 +755,9 @@ if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
          CALL sparse_multrec(this, left, right, mi2, mf, ni, nf, ki, kf, &
                              acut, af, a_index, bi, bf, b_index, d2)
         !$OMP END TASK
-        !$OMP TASK if (condition)
-        print *, "I AM A TASK I AM ON THREAD", omp_get_thread_num()
-        !$OMP END TASK
+!        /*!$OMP TASK if (condition)
+!        print *, "I AM A TASK I AM ON THREAD", omp_get_thread_num()!
+!        !$OMP END TASK*/
       CASE (2)
 
          s1 = K/2
@@ -795,9 +796,9 @@ if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
          CALL sparse_multrec(this, left, right, mi, mf, ni2, nf, ki, kf, &
                              ai, af, a_index, bcut, bf, b_index, d2)
         !$OMP END TASK
-        !$OMP TASK if(condition)
-        print *, "I AM A TASK I AM ON THREAD", omp_get_thread_num()
-        !$OMP END TASK
+!        !$OMP TASK if(condition)
+!        print *, "I AM A TASK I AM ON THREAD", omp_get_thread_num()
+!        !$OMP END TASK
       END SELECT
    END SUBROUTINE sparse_multrec
 
