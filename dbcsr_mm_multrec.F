@@ -361,10 +361,10 @@ ENDDO
       CHARACTER(len=*), PARAMETER :: routineN = 'dbcsr_mm_multrec_multiply', &
          routineP = moduleN//':'//routineN
 
-!$    INTEGER                                            :: ithread, nthreads
+      INTEGER                                            :: ithread, nthreads
       INTEGER                                            :: t_a_f, t_a_l, t_b_f, t_b_l
       INTEGER, DIMENSION(:), POINTER                     :: k_locals
-      integer :: d
+      integer :: d, i
 
 !   ---------------------------------------------------------------------------
 
@@ -406,6 +406,7 @@ ithread=0
 !!$OMP BARRIER
 
       d=0
+      !$OMP TASKGROUP
       CALL sparse_multrec(this, left, right, &
                           1, left%nblkrows_local, &
                           1, right%nblkcols_local, &
@@ -413,9 +414,15 @@ ithread=0
                           t_a_f, t_a_l, left%coo_l, &
                           t_b_f, t_b_l, right%coo_l, &
                           d)
+      !$OMP END TASKGROUP
 
-      CALL dbcsr_mm_csr_purge_stacks(this%csr(ithread), left, right)
+      Print*, "SPARSE MULTREC DONE"
 
+      !CALL dbcsr_mm_csr_purge_stacks(this%csr(ithread), left, right)
+
+       do i=0,omp_get_num_threads()-1
+         CALL dbcsr_mm_csr_purge_stacks(this%csr(i), left, right)
+       enddo
       flop = flop+this%flop
       !
    END SUBROUTINE dbcsr_mm_multrec_multiply
@@ -472,7 +479,7 @@ ithread=0
 
       INTEGER                                            :: handle, ithread, lb_meta, &
                                                             nblocks, nthreads, ub_meta
-
+      INTEGER :: i
 !   ---------------------------------------------------------------------------
 
       CALL timeset(routineN, handle)
@@ -481,13 +488,15 @@ ithread=0
 
 ithread=0
 !$ ithread=OMP_GET_THREAD_NUM()
-
-      CALL dbcsr_mm_csr_finalize(this%csr(ithread))
+      do i=0,omp_get_num_threads()-1
+        CALL dbcsr_mm_csr_finalize(this%csr(i))
+      enddo
 
       ! Release the carrier
       IF (this%new_row_max_epss) DEALLOCATE (this%row_max_epss)
 
       IF (PRESENT(meta_buffer)) THEN
+         print*, "meta buffer"
          ithread = 0; nthreads = 1
 !$       ithread = OMP_GET_THREAD_NUM(); nthreads = OMP_GET_NUM_THREADS()
          ! Copy wms data into matrix
@@ -502,6 +511,7 @@ ithread=0
          ub_meta = lb_meta+nblocks
          meta_buffer(lb_meta+1:ub_meta) = this%product_wm%blk_p(1:nblocks)
       ELSE
+         print *, "no meta buffer"
          CALL remap_local2global(this%product_wm%row_i, &
                                  this%product_wm%col_i, &
                                  this%c_local_rows, this%c_local_cols, &
@@ -684,7 +694,7 @@ nthreads=1
 d2=d+1
 
 condition = (ithread .eq. 0 ) .and. (d .eq. 3)
-condition = .FALSE.
+!condition = .False.
 
 print *, "DEPTH=", d, " ithread=", ithread, "nthreads=",nthreads, "condition=", condition
 if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
@@ -722,7 +732,7 @@ if (d .eq. 0 .and. ithread .eq. 0) print *, "aindex=",af,a_index(1,:)
                                        flop=this%flop, &
                                        a_index=a_index, b_index=b_index, &
                                        a_norms=this%a_norms, b_norms=this%b_norms)
-            print *, "chunk multiplied"
+            print *, "chunk multiplied. DEPTH=",d
          endif
          RETURN
       ENDIF
