@@ -1337,7 +1337,7 @@ print*, blk_l,row_img,col_img,blk,stored_row
 !$OMP PRIVATE(ithread)
       ithread = 0
 !$    ithread = OMP_GET_THREAD_NUM()
-
+!$OMP MASTER
       ALLOCATE (multrec(ithread)%p)
       CALL dbcsr_mm_multrec_init(multrec(ithread)%p, &
                                  left_buffer_comm%mats(1, 1), &
@@ -1351,6 +1351,7 @@ print*, blk_l,row_img,col_img,blk,stored_row
                                                     right_buffer_comm%mats(1, 1)%nblks)/nthreads, &
                                  right_row_blk_size=array_data(right_buffer_comm%mats(1, 1)%row_blk_size), &
                                  m_sizes=m_sizes, n_sizes=n_sizes)
+!$OMP END MASTER
 !$OMP END PARALLEL
 
 print*, "multrec_init done :)"
@@ -1705,12 +1706,12 @@ print*, "multrec_init done :)"
 !$OMP REDUCTION (+: flop_single)
             ithread = 0; nthreads = 1
 !$          ithread = omp_get_thread_num(); nthreads = omp_get_num_threads()
-
+!$OMP MASTER
             IF (metronome == nsteps_k .AND. v_ki == min_nimages-1) &
                CALL dbcsr_mm_multrec_phaseout(multrec(ithread)%p)
-!$OMP BARRIER
+!!$OMP BARRIER
             CALL timeset(routineN//"_multrec", handle2)
-!$OMP MASTER
+!!$OMP MASTER
 !$ print *, "I am the master thread and I am thread number",omp_get_thread_num()
             CALL dbcsr_mm_multrec_multiply(multrec(ithread)%p, &
                                            left=left_buffer_calc%mats(1, v_ki+1), &
