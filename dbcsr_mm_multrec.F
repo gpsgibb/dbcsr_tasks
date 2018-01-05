@@ -55,6 +55,10 @@ MODULE dbcsr_mm_multrec
    CHARACTER(len=*), PARAMETER, PRIVATE :: moduleN = 'dbcsr_mm_multrec'
    LOGICAL, PARAMETER :: careful_mod = .FALSE.
 
+   TYPE product_wm_ptr
+         TYPE(dbcsr_work_type), POINTER :: ptr => Null()
+   END TYPE
+
 ! **************************************************************************************************
 !> \brief Used to carry data among the various calls.  Each thread has
 !>        its own private copy.
@@ -121,7 +125,8 @@ MODULE dbcsr_mm_multrec
       REAL(KIND=real_8)     :: eps
       INTEGER               :: original_lastblk
       INTEGER(kind=int_8)   :: flop
-      TYPE(dbcsr_work_type), POINTER :: product_wm => Null()
+      !TYPE(dbcsr_work_type), POINTER :: product_wm => Null()
+      Type(product_wm_ptr), allocatable, dimension(:) :: product_wm
       TYPE(dbcsr_mm_csr_type), allocatable, dimension(:)    :: csr
       LOGICAL                        :: new_row_max_epss = .FALSE.
       LOGICAL                        :: initialized = .FALSE.
@@ -238,7 +243,14 @@ integer :: i
       this%use_eps = PRESENT(eps)
       this%original_lastblk = product%wms(ithread+1)%lastblk
       this%flop = INT(0, int_8)
-      this%product_wm => product%wms(ithread+1)
+
+      allocate(this%product_wm(0:nthreads-1))
+      do i=0,nthreads-1
+         print *, "setting work matrix pointer for thread", i
+         !this%product_wm => product%wms(ithread+1)
+         this%product_wm(i)%ptr => product%wms(i+1)
+      enddo
+
 
       IF (PRESENT(eps)) THEN
          this%eps = eps
@@ -488,7 +500,11 @@ ithread=0
 
 ithread=0
 !$ ithread=OMP_GET_THREAD_NUM()
-      do i=0,omp_get_num_threads()-1
+nthreads=1
+!$ nthreads=omp_get_num_threads()
+
+      do i=0,nthreads-1
+        print *, "Finalizing CSR for thread",i, " of",nthreads
         CALL dbcsr_mm_csr_finalize(this%csr(i))
       enddo
 
@@ -500,22 +516,28 @@ ithread=0
          ithread = 0; nthreads = 1
 !$       ithread = OMP_GET_THREAD_NUM(); nthreads = OMP_GET_NUM_THREADS()
          ! Copy wms data into matrix
-         lb_meta = meta_buffer(ithread+1)
-         nblocks = (meta_buffer(ithread+2)-lb_meta)/3
-         ub_meta = lb_meta+nblocks
-         meta_buffer(lb_meta+1:ub_meta) = this%product_wm%row_i(1:nblocks)
-         lb_meta = ub_meta
-         ub_meta = lb_meta+nblocks
-         meta_buffer(lb_meta+1:ub_meta) = this%product_wm%col_i(1:nblocks)
-         lb_meta = ub_meta
-         ub_meta = lb_meta+nblocks
-         meta_buffer(lb_meta+1:ub_meta) = this%product_wm%blk_p(1:nblocks)
+          do ithread=0,nthreads-1
+            print *, "copying data into matrix for thread",ithread, " of",nthreads
+             lb_meta = meta_buffer(ithread+1)
+             nblocks = (meta_buffer(ithread+2)-lb_meta)/3
+             ub_meta = lb_meta+nblocks
+             meta_buffer(lb_meta+1:ub_meta) = this%product_wm(ithread)%ptr%row_i(1:nblocks)
+             lb_meta = ub_meta
+             ub_meta = lb_meta+nblocks
+             meta_buffer(lb_meta+1:ub_meta) = this%product_wm(ithread)%ptr%col_i(1:nblocks)
+             lb_meta = ub_meta
+             ub_meta = lb_meta+nblocks
+             meta_buffer(lb_meta+1:ub_meta) = this%product_wm(ithread)%ptr%blk_p(1:nblocks)
+          enddo
       ELSE
          print *, "no meta buffer"
-         CALL remap_local2global(this%product_wm%row_i, &
-                                 this%product_wm%col_i, &
+         do ithread=0,nthreads-1
+           print *, "remap_local2global for thread",ithread, " of",nthreads
+             CALL remap_local2global(this%product_wm(ithread)%ptr%row_i, &
+                                 this%product_wm(ithread)%ptr%col_i, &
                                  this%c_local_rows, this%c_local_cols, &
-                                 this%original_lastblk+1, this%product_wm%lastblk)
+                                 this%original_lastblk+1, this%product_wm(ithread)%ptr%lastblk)
+         enddo
 
          ! if filtering is requested remove small blocks, unless the sparsity needs to be kept
          IF (this%use_eps .AND. .NOT. this%keep_sparsity) &
@@ -536,45 +558,54 @@ ithread=0
          routineP = moduleN//':'//routineN
 
       INTEGER                                            :: handle
+      integer :: ithread, nthreads
+
+      ithread=0
+      nthreads=1
+      !$ nthreads=omp_get_num_threads()
 
       CALL timeset(routineN, handle)
 
-      SELECT CASE (this%product_wm%data_area%d%data_type)
-      CASE (dbcsr_type_real_4)
-         CALL multrec_filtering_s(this%eps, &
-              this%product_wm%lastblk, &
-              this%product_wm%row_i, &
-              this%product_wm%col_i, &
-              this%product_wm%blk_p, &
-              this%m_global_sizes, this%n_global_sizes, &
-              this%product_wm%data_area%d%r_sp)
-      CASE (dbcsr_type_real_8)
-         CALL multrec_filtering_d(this%eps, &
-              this%product_wm%lastblk, &
-              this%product_wm%row_i, &
-              this%product_wm%col_i, &
-              this%product_wm%blk_p, &
-              this%m_global_sizes, this%n_global_sizes, &
-              this%product_wm%data_area%d%r_dp)
-      CASE (dbcsr_type_complex_4)
-         CALL multrec_filtering_c(this%eps, &
-              this%product_wm%lastblk, &
-              this%product_wm%row_i, &
-              this%product_wm%col_i, &
-              this%product_wm%blk_p, &
-              this%m_global_sizes, this%n_global_sizes, &
-              this%product_wm%data_area%d%c_sp)
-      CASE (dbcsr_type_complex_8)
-         CALL multrec_filtering_z(this%eps, &
-              this%product_wm%lastblk, &
-              this%product_wm%row_i, &
-              this%product_wm%col_i, &
-              this%product_wm%blk_p, &
-              this%m_global_sizes, this%n_global_sizes, &
-              this%product_wm%data_area%d%c_dp)
-      CASE DEFAULT
-         CPABORT("Invalid data type.")
-      END SELECT
+      do ithread=0,nthreads-1
+        print *, "multrec filtering for thread",ithread, " of",nthreads
+
+              SELECT CASE (this%product_wm(ithread)%ptr%data_area%d%data_type)
+              CASE (dbcsr_type_real_4)
+                 CALL multrec_filtering_s(this%eps, &
+                      this%product_wm(ithread)%ptr%lastblk, &
+                      this%product_wm(ithread)%ptr%row_i, &
+                      this%product_wm(ithread)%ptr%col_i, &
+                      this%product_wm(ithread)%ptr%blk_p, &
+                      this%m_global_sizes, this%n_global_sizes, &
+                      this%product_wm(ithread)%ptr%data_area%d%r_sp)
+              CASE (dbcsr_type_real_8)
+                 CALL multrec_filtering_d(this%eps, &
+                      this%product_wm(ithread)%ptr%lastblk, &
+                      this%product_wm(ithread)%ptr%row_i, &
+                      this%product_wm(ithread)%ptr%col_i, &
+                      this%product_wm(ithread)%ptr%blk_p, &
+                      this%m_global_sizes, this%n_global_sizes, &
+                      this%product_wm(ithread)%ptr%data_area%d%r_dp)
+              CASE (dbcsr_type_complex_4)
+                 CALL multrec_filtering_c(this%eps, &
+                      this%product_wm(ithread)%ptr%lastblk, &
+                      this%product_wm(ithread)%ptr%row_i, &
+                      this%product_wm(ithread)%ptr%col_i, &
+                      this%product_wm(ithread)%ptr%blk_p, &
+                      this%m_global_sizes, this%n_global_sizes, &
+                      this%product_wm(ithread)%ptr%data_area%d%c_sp)
+              CASE (dbcsr_type_complex_8)
+                 CALL multrec_filtering_z(this%eps, &
+                      this%product_wm(ithread)%ptr%lastblk, &
+                      this%product_wm(ithread)%ptr%row_i, &
+                      this%product_wm(ithread)%ptr%col_i, &
+                      this%product_wm(ithread)%ptr%blk_p, &
+                      this%m_global_sizes, this%n_global_sizes, &
+                      this%product_wm(ithread)%ptr%data_area%d%c_dp)
+              CASE DEFAULT
+                 CPABORT("Invalid data type.")
+              END SELECT
+      enddo
 
       CALL timestop(handle)
 
@@ -627,8 +658,12 @@ ithread=0
    FUNCTION dbcsr_mm_multrec_get_nblks(this) RESULT(nblks)
       TYPE(dbcsr_mm_multrec_type), INTENT(IN)            :: this
       INTEGER                                            :: nblks
+      integer :: ithread
 
-      nblks = this%product_wm%lastblk
+      ithread=0
+      !$ ithread=omp_get_thread_num()
+
+      nblks = this%product_wm(ithread)%ptr%lastblk
 
    END FUNCTION dbcsr_mm_multrec_get_nblks
 
@@ -641,8 +676,12 @@ ithread=0
    FUNCTION dbcsr_mm_multrec_get_nze(this) RESULT(nze)
       TYPE(dbcsr_mm_multrec_type), INTENT(IN)            :: this
       INTEGER                                            :: nze
+      integer :: ithread
 
-      nze = this%product_wm%datasize
+      ithread=0
+      !$ ithread=omp_get_thread_num()
+
+      nze = this%product_wm(ithread)%ptr%datasize
 
    END FUNCTION dbcsr_mm_multrec_get_nze
 
