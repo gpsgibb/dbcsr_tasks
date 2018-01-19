@@ -123,7 +123,7 @@ MODULE dbcsr_mm_multrec
 
       REAL(KIND=sp), DIMENSION(:), POINTER :: row_max_epss, a_norms, b_norms
       REAL(KIND=real_8)     :: eps
-      INTEGER               :: original_lastblk
+      INTEGER, allocatable, dimension(:)              :: original_lastblk
       INTEGER(kind=int_8)   :: flop
       !TYPE(dbcsr_work_type), POINTER :: product_wm => Null()
       Type(product_wm_ptr), allocatable, dimension(:) :: product_wm
@@ -241,7 +241,10 @@ integer :: i
       this%keep_sparsity = keep_sparsity
       this%c_has_symmetry = product%symmetry
       this%use_eps = PRESENT(eps)
-      this%original_lastblk = product%wms(ithread+1)%lastblk
+      allocate(this%original_lastblk(0:nthreads-1))
+      do i=0,nthreads-1
+        this%original_lastblk(i) = product%wms(i+1)%lastblk
+      enddo
       this%flop = INT(0, int_8)
 
       allocate(this%product_wm(0:nthreads-1))
@@ -332,15 +335,20 @@ integer :: i
 !!$OMP BARRIER
      print*, "multrec_init",ithread, nthreads
       !TODO: should we move this up?
+!!$OMP PARALLEL DO
 DO i=0,nthreads-1
+      !print *, "i=",i," ithread=",omp_get_thread_num()
       CALL dbcsr_mm_csr_init(this%csr(i), &
                              left=left, right=right, product=product, &
                              m_sizes=this%m_sizes, n_sizes=this%n_sizes, &
                              block_estimate=block_estimate, &
                              right_row_blk_size=right_row_blk_size, &
-                             nlayers=nlayers)
+                             nlayers=nlayers,ithread=i)
 !!$OMP END PARALLEL
 ENDDO
+!!$OMP END PARALLEL DO
+
+!stop
       this%initialized = .TRUE.
       CALL timestop(handle)
    END SUBROUTINE dbcsr_mm_multrec_init
@@ -536,7 +544,8 @@ nthreads=1
              CALL remap_local2global(this%product_wm(ithread)%ptr%row_i, &
                                  this%product_wm(ithread)%ptr%col_i, &
                                  this%c_local_rows, this%c_local_cols, &
-                                 this%original_lastblk+1, this%product_wm(ithread)%ptr%lastblk)
+                                 this%original_lastblk(ithread)+1, this%product_wm(ithread)%ptr%lastblk)
+             print*, "first, last =",    this%original_lastblk(ithread)+1, this%product_wm(ithread)%ptr%lastblk
          enddo
 
          ! if filtering is requested remove small blocks, unless the sparsity needs to be kept
@@ -644,7 +653,7 @@ nthreads=1
                               m_sizes=this%m_sizes, n_sizes=this%n_sizes, &
                               g2l_map_rows=g2l_map_rows, &
                               g2l_map_cols=g2l_map_cols, &
-                              original_lastblk=this%original_lastblk, &
+                              original_lastblk=this%original_lastblk(ithread), &
                               keep_sparsity=this%keep_sparsity)
       CALL timestop(handle)
    END SUBROUTINE dbcsr_mm_multrec_red3D
