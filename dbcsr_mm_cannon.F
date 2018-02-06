@@ -1711,21 +1711,31 @@ print*, "multrec_init done :)"
                CALL dbcsr_mm_multrec_phaseout(multrec(ithread)%p)
 !!$OMP BARRIER
             CALL timeset(routineN//"_multrec", handle2)
-!!$OMP MASTER
+!$OMP END MASTER
 !$ print *, "I am the master thread and I am thread number",omp_get_thread_num()
-            CALL dbcsr_mm_multrec_multiply(multrec(ithread)%p, &
+            CALL dbcsr_mm_multrec_multiply(multrec(0)%p, &
                                            left=left_buffer_calc%mats(1, v_ki+1), &
                                            right=right_buffer_calc%mats(v_ki+1, 1), &
                                            flop=flop_single, &
                                            a_norms=left_norms, b_norms=right_norms, &
                                            k_sizes=k_sizes)
-            !$OMP taskwait
+
+!$OMP taskwait
+!$OMP barrier
+
+
+!  CALL dbcsr_mm_csr_purge_stacks(multrec(0)%p%csr(ithread), left, right)
+
+
+!$OMP MASTER
+
+
             IF (metronome == nsteps_k .AND. v_ki == min_nimages-1) THEN
                CALL dbcsr_mm_multrec_finalize(multrec(ithread)%p)
                DEALLOCATE (multrec(ithread)%p)
             ENDIF
-
 !$OMP END MASTER
+
 
 !$OMP BARRIER
 
